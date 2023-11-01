@@ -17,6 +17,7 @@ import factory.EntityManagerFactory;
 import factory.RepositoryFactory;
 import factory.anotations.EngineEntity;
 import factory.anotations.Identity;
+import factory.anotations.Join;
 import factory.anotations.OneToMany;
 import factory.enums.EngineType;
 import factory.enums.LogTypeEnum;
@@ -27,6 +28,7 @@ public class Repository<S> extends SqlActions<S> implements RepositoryFactory<S>
     private Field[] variables;
     private List<Class<?>> LoadClass;
     private static Logger logger;
+    private static List<Object> many = new ArrayList<>();
 
     public Repository(Class<S> classe, EntityManagerFactory manager) {
         this.classe = classe;
@@ -48,10 +50,11 @@ public class Repository<S> extends SqlActions<S> implements RepositoryFactory<S>
         List<S> elementList = new ArrayList<>();
         String sql = findAllSQl(classe, LoadClass);
         ResultSet response = ExecuteSelect(sql);
+        many.clear();
 
         try {
             while (response.next()) {
-                S instance = classe.cast(TransformeToClass(classe, response));
+                S instance = classe.cast(TransformeToClass(classe, response, null));
                 if(instance != null){
                     elementList.add(instance);
                 }
@@ -72,11 +75,12 @@ public class Repository<S> extends SqlActions<S> implements RepositoryFactory<S>
         String sql = findBySQL(classe, LoadClass, value, field);
         ResultSet response = ExecuteSelect(sql);
         List<S> elementList = new ArrayList<>();
+        many.clear();
 
 
         try {
             while (response.next()) {
-                S instance = classe.cast(TransformeToClass(classe, response));
+                S instance = classe.cast(TransformeToClass(classe, response, null));
                 if(instance != null){
                     elementList.add(instance);
                 }
@@ -100,9 +104,7 @@ public class Repository<S> extends SqlActions<S> implements RepositoryFactory<S>
             if((long)value == 0){
                 if(engine == EngineType.CASCATE){
                     Queue<Class<?>> queue = PrepareListToOrder(entity);
-
                     executeInsert(entity, queue);
-
                 }
             }else{
                 String sql = UpdateSQL(entity.getClass(), entity, value);
@@ -117,10 +119,12 @@ public class Repository<S> extends SqlActions<S> implements RepositoryFactory<S>
         S instance = null;
         String sql = findByIdSQL(classe, LoadClass, id);
         ResultSet response = ExecuteSelect(sql);
+        many.clear();
 
         try {
+
             while (response.next()) {
-                instance = classe.cast(TransformeToClass(classe, response));
+                instance = classe.cast(TransformeToClass(classe, response, null));
             }
         } catch (SQLException e) {
             System.out.println(e.getMessage());
@@ -139,22 +143,34 @@ public class Repository<S> extends SqlActions<S> implements RepositoryFactory<S>
         Execute(sql);
     }
 
-    private Object TransformeToClass(Class<?> classe, ResultSet res) throws Exception{
+    private Object TransformeToClass(Class<?> classe, ResultSet res, Object inst) throws Exception{
         Constructor<?> constructor = classe.getConstructor();
         Object instance = constructor.newInstance();
         Field[] variables = classe.getDeclaredFields();
 
         for (Field field : variables) {
             field.setAccessible(true);
-            if(LoadClass.contains(field.getType()) && !field.isAnnotationPresent(OneToMany.class)){
-                Object instanceOfSubclass = TransformeToClass(field.getType(), res);
-                field.set(instance, instanceOfSubclass);
-            }else if(!field.isAnnotationPresent(OneToMany.class)){
-                Object value = getValueOfVarible(field, res);
-                field.set(instance, value);
-            }else if(field.isAnnotationPresent(OneToMany.class)){
-                System.out.println(field.getName());
+            if(!field.isAnnotationPresent(Join.class)){
+                if(LoadClass.contains(field.getType()) && !field.isAnnotationPresent(OneToMany.class)){
+                    System.out.println(field);
+                    Object instanceOfSubclass = TransformeToClass(field.getType(), res, instance);
+                    field.set(instance, instanceOfSubclass);
+                }else if(!field.isAnnotationPresent(OneToMany.class)){
+                    Object value = getValueOfVarible(field, res);
+                    field.set(instance, value);
+                }else if(field.isAnnotationPresent(OneToMany.class)){
+                    OneToMany anotetion = field.getAnnotation(OneToMany.class);
+                    String ClssName = anotetion.MapByCLass();
+                    Class<?> classeSub = getClassByName(ClssName);
+                    Object instanceOfSubclass =  TransformeToClass(classeSub, res, null);
+                    many.add(instanceOfSubclass);
+                    field.set(instance, many);
+                }
+
+            }else{
+
             }
+
         }
 
         return instance;

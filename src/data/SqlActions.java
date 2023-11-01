@@ -6,6 +6,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -197,21 +198,23 @@ public class SqlActions<S> extends ConnectionDb{
         String tableName = entityClass.getSimpleName().toLowerCase();
         Field[] fields = entityClass.getDeclaredFields();
         String insertSQL = "INSERT INTO " + tableName + " (";
-
+        List<Field> Onetomany = new ArrayList<>();
         for (Field field : fields) {
             field.setAccessible(true);
             if(!isIdentity(field)){
 
                 if(field.isAnnotationPresent(Join.class)){
                     insertSQL += field.getName()+"_id, ";
+                }else if(field.isAnnotationPresent(OneToMany.class)){
+
                 }else{
-                     insertSQL += field.getName()+", ";
+                    insertSQL += field.getName()+", ";
                 }
 
 
 
                 if(field.isAnnotationPresent(OneToMany.class)){
-                    System.out.println(field.getName());
+                    Onetomany.add(field);
                 }else if(contextInEntity(entity, entityClass)){
                     Object subEntity = GetcontextInEntity(entity, entityClass);
                     values = getListElemObjects(subEntity);
@@ -221,7 +224,7 @@ public class SqlActions<S> extends ConnectionDb{
                             Object value = field.get(entity);
                             values.add(value);
                         } catch (Exception e) {
-                            System.out.println(e.getMessage());
+                           System.out.println(e.getMessage());
                         }
                     }else{
                         if (insertedIds.containsKey(field.getType())) {
@@ -245,6 +248,16 @@ public class SqlActions<S> extends ConnectionDb{
 
         int idLast = executeQueryInsert(insertSQL, values);
         insertedIds.put(entityClass, idLast);
+
+        for (Field field : Onetomany) {
+            try {
+                Object elementList = field.get(entity);
+                insertList(GetFilaOnetoMany(elementList), entity);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+
+        }
 
         executeInsert(entity, queue);
     }
@@ -273,6 +286,89 @@ public class SqlActions<S> extends ConnectionDb{
         }
 
         return ClassMapped;
+    }
+
+    protected Class<?> getClassByName(String name){
+        for (Class<?> class1 : classList) {
+            if(class1.getSimpleName().equals(name)){
+                return class1;
+            }
+        }
+
+        return null;
+    }
+
+    private void insertList(Queue<Class<?>> fila, S entity){
+        Class<?> classe = fila.peek();
+        Field[] varibles = classe.getDeclaredFields();
+
+        List<?> listValue = ListValue(entity, fila.remove());
+        for (int i = 0; i < listValue.size(); i++) {
+            List<Object> values = new ArrayList<>();
+            String sql = "INSERT INTO "+ classe.getSimpleName().toLowerCase() +"(";
+            if(conteisRelation()){
+
+            }else{
+                for (Field field : varibles) {
+                    if(!isIdentity(field)){
+                        if(field.isAnnotationPresent(Join.class)){
+                            sql += field.getName()+"_id, ";
+                            if(insertedIds.containsKey(field.getType())){
+                                int referencedId = insertedIds.get(field.getType());
+                                values.add(referencedId);
+                            }
+                        }else{
+                            sql += field.getName()+", ";
+                            try {
+                                field.setAccessible(true);
+                                Object value = field.get(listValue.get(i));
+                                values.add(value);
+                            } catch (IllegalArgumentException e) {
+                                e.printStackTrace();
+                            } catch (IllegalAccessException e) {
+                                e.printStackTrace();
+                            }
+                        }
+                    }
+
+                }
+            }
+
+            sql = sql.substring(0, sql.length() - 2) + ") VALUES (";
+            for (int j = 0; j < values.size(); j++) {
+                sql += "?, ";
+            }
+            sql = sql.substring(0, sql.length() - 2) + ");";
+
+            int idLast = executeQueryInsert(sql, values);
+            insertedIds.put(classe, idLast);
+        }
+    }
+
+    private List<?> ListValue(S entity, Class<?> elClass){
+        List<?> listValue = null;
+        Field[] vars = entity.getClass().getDeclaredFields();
+        for (Field field : vars) {
+            if(field.isAnnotationPresent(OneToMany.class)){
+                OneToMany anotation = field.getAnnotation(OneToMany.class);
+                String CLassName = anotation.MapByCLass();
+                field.setAccessible(true);
+                if(CLassName.equals(elClass.getSimpleName())){
+                    try {
+                        Object value = field.get(entity);
+                        if(value instanceof List){
+                            listValue = (List<?>)value;
+                        }
+                    } catch (IllegalArgumentException e) {
+                        e.printStackTrace();
+                    } catch (IllegalAccessException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        }
+
+        return listValue;
     }
 
     private String getIdentityVarname(Class<?> classe){
@@ -378,7 +474,7 @@ public class SqlActions<S> extends ConnectionDb{
                 ResultSet rs = stmtid.executeQuery("SELECT LAST_INSERT_ID()");
 
                 if (rs.next()) {
-                    int lastId = rs.getInt(1); // Obtém o último ID inserido
+                    int lastId = rs.getInt(1);
                     generatedId = lastId;
                 }
 
@@ -403,4 +499,21 @@ public class SqlActions<S> extends ConnectionDb{
         return null;
     }
 
+    private Queue<Class<?>> GetFilaOnetoMany(Object lista){
+        List<?> listaOf = null;
+        if(lista instanceof List){
+            listaOf = (List<?>)lista;
+        }
+
+        Queue<Class<?>> fila = new ArrayDeque<>();
+        for (Object object : listaOf) {
+            fila.add(object.getClass());
+        }
+
+        return fila;
+    }
+
+    private boolean conteisRelation(){
+        return false;
+    }
 }

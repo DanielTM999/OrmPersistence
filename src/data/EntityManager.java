@@ -183,6 +183,7 @@ public class EntityManager implements EntityManagerFactory{
             String idName = getIdentityVarname(field.getType());
             query = relation + " INT, FOREIGN KEY ("+relation+") REFERENCES " + className+"("+idName+"),";
         }
+
         return query;
     }
 
